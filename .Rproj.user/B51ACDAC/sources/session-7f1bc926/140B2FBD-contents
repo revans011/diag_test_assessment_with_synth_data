@@ -1,0 +1,205 @@
+---
+title: "Analysis"
+date: "`r Sys.Date()`"
+author: "Rich Evans, PhD, PSTAT"
+format: pdf
+number-sections: true
+execute: 
+  echo: false
+---
+
+# Summary
+
+# Notes
+
+# Boilerplate notes
+
+1. The variable names are changed slightly to make programming easier. 
+
+2. I remind investigators that while p =< 0.05 means that it is likely the populations have different parameters (e.g., means, medians), P > 0.05 means "no conclusion," that is _there was not enough evidence to conclude the populations have different parameters_. P > 0.05 does **not** mean "no group differences." Moreover, the groups' data are almost always different. P-values are statements about population parameters, not the data, and p > 0.05 mean that we can not reach a conclusion about the population parameters. This comes from the fundamentals: Fisher, writing in 1935, said: "it should be noted that the null hypothesis is never proved or established, but is possibly disproved, in the course of experimentation" (Fisher, 1990b, p. 16). (Fisher, R.A.: The Design of Experiments (reprinted 8th edition, 1966). In: Bennett, J.H. (ed.) Statistical Methods, Experimental Design, and Scientific Inference. Oxford University Press, Oxford (1990b)
+)
+
+3. I remind investigators that checking many p-values for statistical significance increases the chance of a false positive result. Checking six p-values makes the chance of a false positive result 26%. Checking 14 p-values increase the chance of a false positive to 51%. I can make corrections to bring those high error rates (e.g., 51%) back to  5% (=0.05). This problem is sometimes called multiplicity or Type I error inflation.
+
+4. The tables are figures are **not** publication ready. Fine-tuning tables and figures takes a lot of time, so I save fine-tuning until the final ones are chosen for publication. That way, I'm not fine-tuning things that are discarded in the final draft.
+
+\newpage
+
+
+
+```{r}
+#| label: setup
+#| echo: false
+#| include: false
+
+# a little template for installing
+if (!requireNamespace("bnlearn", quietly = TRUE)) {
+  install.packages("bnlearn", quietly = TRUE)}
+
+library(here)
+library(reticulate)
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  echo = FALSE,         # Show code by default
+  warning = FALSE,     # Hide warnings in the output
+  message = FALSE,     # Hide messages in the output
+  fig.width = 4,       # Default figure width
+  fig.height = 2.666,      # Default figure height
+  fig.align = "center" # Center align figures
+)
+
+# Set seed for reproducibility
+set.seed(1234)
+
+```
+
+```{r}
+#| label: read-data
+#| include: false
+
+df <- readxl::read_xlsx(here("data","re.xlsx"), na = c("NF", "NA", "N/A"))
+
+df <- clean_names(df)
+
+skim(df)
+
+#---------------------------multiple sheets----------------------------
+
+df_list = here("data","Katie_Final_Data_Collection_Tables.xlsx") %>% 
+  excel_sheets() %>% 
+  purrr::set_names() %>% 
+    map(~ read_excel(path = here("data","Katie_Final_Data_Collection_Tables.xlsx"), sheet = .x, na = c("N/A", "Missing")))
+
+
+df_list <- lapply(df_list,clean_names)
+
+remove_na_columns <- function(df) {
+  df[, colSums(is.na(df)) == 0]
+}
+
+# Apply the function to each dataframe in the list to remove empty columns
+df_list_cleaned <- lapply(df_list, remove_na_columns)
+
+```
+
+
+
+```{python}
+#| label: AI
+#| eval: FALSE
+
+
+"""
+
+You are a biostatistician. 
+
+
+Write R code to do FOUR kaplan-Meier (KM) analyses on this dataset. 
+
+STEP ONE (write R code to create two new variables)
+  (a) for overall survival, calculate the time in months between date of diagnosis ("date_of_dx_d0_for_os") and date of death or censoring ("date_of_dx_d0_for_os"). Call that variable "time_os_months"
+
+  (b) for progression free survival, calculate the time in months between end of radiation ("date_of_rt2_end_d0_for_pfs") and date of progression or censoring ("date_of_rec2_end_for_pfs"). Call that variable "time_pfs_months"
+
+
+STEP TWO
+Write R code to do:
+  (a) a KM analysis for overall survival using  time_os_months and the event variable "alive_0_or_dead_1"
+  (b) a KM analysis by group for overall survival using  time_os_months, the event variable "alive_0_or_dead_1", and the grouping variable "group_name_hfrt_or_crt". Include a graph and log rank test. Put the p-value of the log-rank test on the graph.
+  (c) a KM analysis for overall pfs using  time_pfs_months and the event variable "recurrence_0_or_no_recurrence_1"
+  (d) a KM analysis by group for pfs using  time_pfs_months, the event variable "recurrence_0_or_no_recurrence_1", and the grouping variable "group_name_hfrt_or_crt". Include a graph and log rank test. Put the p-value of the log-rank test on the graph.
+
+STEP THREE
+Write R code to 
+  (a) do descriptive statistics on "toxicities_y_or_n", "worse_than_g1_tox_y_or_n",  "alopecia" , "fatigue", "dermatitis",  "ha", "other".
+  (b) do non-parametric group testing using the grouping variable "group_name_hfrt_or_crt" for the variables "toxicities_y_or_n", "worse_than_g1_tox_y_or_n",  "alopecia" , "fatigue", "dermatitis",  "ha", "other".
+  
+STEP FOUR
+Write the statistical methods section of a manuscript describing the statistical analysis that was done in STEP ONE, STEP TWO, AND STEP THREE.
+
+"""
+```
+
+# Results
+
+## Table One
+
+
+
+\newpage
+
+## Stats write up
+
+The statistical analysis was in two parts. First, the data were summarized with means with standard errors, and medians with minimum and maximums, and plotted with histograms to check for spurious observations and assess data symmetry. Repeated measures ANOVA was used to compare overall AMM and BMM. Second, intraclass correlations (ICC) with 95% confidence intervals were used to assess inter- and intra-rater reliability. P-values were used for inferences comparing the ICCs. Statistical significance was set at 0.05 for tests of two ICCs, and using the Bonferroni Correction was set at 0.017 for pairwise comparisons of three ICCs. 
+
+
+\vspace{5cm}
+
+## Software References
+
+
+```{r}
+
+# Get and print pwr package version
+pwr_version <- as.character(packageVersion("pwr"))
+cat("pwr package version:", pwr_version, "\n")
+
+# Get citation for pwr without BibTeX output
+pwr_citation <- citation("pwr")
+print(pwr_citation, style = "text")  # Suppresses BibTeX
+
+cat("\n\n")
+
+#------tidyverse
+tidy_version <- as.character(packageVersion("tidyverse"))
+cat("tidyverse package version:", tidy_version, "\n")
+
+# Get citation for pwr without BibTeX output
+tidy_citation <- citation("tidyverse")
+print(tidy_citation, style = "text")  # Suppresses BibTeX
+
+cat("\n\n")
+
+#-------------gtsummary -------
+gtsummary_version <- as.character(packageVersion("gtsummary"))
+cat("gtsummary package version:", gtsummary_version, "\n")
+
+# Get citation for pwr without BibTeX output
+gtsummary_citation <- citation("gtsummary")
+print(gtsummary_citation, style = "text")  # Suppresses BibTeX
+
+cat("\n\n")
+
+#-------------stats -------
+stats_version <- as.character(packageVersion("stats"))
+cat("stats package version:", stats_version, "\n")
+
+# Get citation for pwr without BibTeX output
+stats_citation <- citation("stats")
+print(stats_citation, style = "text")  # Suppresses BibTeX
+
+cat("\n\n")
+
+
+#-------------ggplot2 -------
+ggplot2_version <- as.character(packageVersion("ggplot2"))
+cat("ggplot2 package version:", ggplot2_version, "\n")
+
+# Get citation for pwr without BibTeX output
+ggplot2_citation <- citation("ggplot2")
+print(ggplot2_citation, style = "text")  # Suppresses BibTeX
+
+cat("\n\n")
+
+# Get and print R version
+r_version <- as.character(getRversion())
+cat("R version:", r_version, "\n")
+
+# Get citation for R without the extra message or BibTeX
+r_citation <- citation()
+print(r_citation, style = "text")  # Suppresses extra messages and BibTeX
+```
+
+
+**End of Document**

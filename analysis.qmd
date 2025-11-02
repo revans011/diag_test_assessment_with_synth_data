@@ -40,12 +40,48 @@ set.seed(1234)
 #| label: read-data
 #| include: false
 
+#------------------------csv-----------------------------
 
 df <- readr::read_csv(here("data","lobanstudy.csv"))
 
 df <- clean_names(df)
 
+#-----------------------------excel---------------------
 
+df <- readxl::read_xlsx(here("data","re.xlsx"), sheet="cleaned", na = c("NF", "NA", "N/A"))
+#df <- readr::read_csv(here("data","lobanstudy.csv"))
+
+
+df <- clean_names(df)
+
+skim(df)
+
+#---------------------------multiple sheets----------------------------
+
+df_list = here("data","Katie_Final_Data_Collection_Tables.xlsx") %>% 
+  excel_sheets() %>% 
+  purrr::set_names() %>% 
+    map(~ read_excel(path = here("data","Katie_Final_Data_Collection_Tables.xlsx"), sheet = .x, na = c("N/A", "Missing")))
+
+
+df_list <- lapply(df_list,clean_names)
+
+remove_na_columns <- function(df) {
+  df[, colSums(is.na(df)) == 0]
+}
+
+# Apply the function to each dataframe in the list to remove empty columns
+df_list_cleaned <- lapply(df_list, remove_na_columns)
+
+
+##### remove useless or empty columns ------------------------------------
+#useless columns
+df <- df %>%
+  select(-starts_with("x")) # removes columns that have info but are not named
+
+#removes empty columns
+df <- df %>%
+  select(where(~ !all(is.na(.x) | .x == "")))
 ##### remove useless columns -------------------------------
 df <- df %>%
   select(-starts_with("x")) # removes columns that have info but are not named
