@@ -1,0 +1,227 @@
+---
+title: "Analysis"
+date: "`r Sys.Date()`"
+author: "Rich Evans, PhD, PSTAT"
+format: pdf
+number-sections: true
+execute: 
+  echo: false
+output-file: "Essentia_Tables"
+---
+
+# Summary
+
+## Statistical methods
+
+The statistical analysis was in two parts. First, the data were summarized with means with standard errors, and medians with minimum and maximums, and plotted with histograms to check for spurious observations and assess data symmetry. Repeated measures ANOVA was used to compare overall AMM and BMM. Second, intraclass correlations (ICC) with 95% confidence intervals were used to assess inter- and intra-rater reliability. P-values were used for inferences comparing the ICCs. Statistical significance was set at 0.05 for tests of two ICCs, and using the Bonferroni Correction was set at 0.017 for pairwise comparisons of three ICCs. 
+
+# Notes
+
+# Boilerplate notes (Everyone gets these!)
+
+1. The variable names are changed slightly to make programming easier. 
+
+2. I remind investigators that while p =< 0.05 means that it is likely the populations have different parameters (e.g., means, medians), P > 0.05 means "no conclusion," that is _there was not enough evidence to conclude the populations have different parameters_. P > 0.05 does **not** mean "no group differences." Moreover, the groups' data are almost always different. P-values are statements about population parameters, not the data, and p > 0.05 mean that we can not reach a conclusion about the population parameters. This comes from the fundamentals: Fisher, writing in 1935, said: "it should be noted that the null hypothesis is never proved or established, but is possibly disproved, in the course of experimentation" (Fisher, 1990b, p. 16). (Fisher, R.A.: The Design of Experiments (reprinted 8th edition, 1966). In: Bennett, J.H. (ed.) Statistical Methods, Experimental Design, and Scientific Inference. Oxford University Press, Oxford (1990b)
+)
+
+3. I remind investigators that checking many p-values for statistical significance increases the chance of a false positive result. Checking six p-values makes the chance of a false positive result 26%. Checking 14 p-values increase the chance of a false positive to 51%. I can make corrections to bring those high error rates (e.g., 51%) back to  5% (=0.05). This problem is sometimes called multiplicity or Type I error inflation.
+
+4. The tables are figures are **not** publication ready. Fine-tuning tables and figures takes a lot of time, so I save fine-tuning until the final ones are chosen for publication. That way, I'm not fine-tuning things that are discarded in the final draft.
+
+\newpage
+
+
+
+```{r}
+#| label: setup
+#| echo: false
+#| include: false
+
+# a little template for installing. BUT perhaps better to use pacman for many packages
+# if (!requireNamespace("bnlearn", quietly = TRUE)) {
+#   install.packages("bnlearn", quietly = TRUE)}
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  echo = FALSE,         # Show code by default
+  warning = FALSE,     # Hide warnings in the output
+  message = FALSE,     # Hide messages in the output
+  fig.width = 4,       # Default figure width
+  fig.height = 2.666,      # Default figure height
+  fig.align = "center" # Center align figures
+)
+
+# Set seed for reproducibility
+set.seed(1234)
+
+```
+
+```{r}
+#| label: read-data
+#| include: false
+
+df <- readxl::read_xlsx(here("data","re.xlsx"), sheet="cleaned", na = c("NF", "NA", "N/A"))
+#df <- readr::read_csv(here("data","lobanstudy.csv"))
+
+
+df <- clean_names(df)
+
+skim(df)
+
+#---------------------------multiple sheets----------------------------
+
+df_list = here("data","Katie_Final_Data_Collection_Tables.xlsx") %>% 
+  excel_sheets() %>% 
+  purrr::set_names() %>% 
+    map(~ read_excel(path = here("data","Katie_Final_Data_Collection_Tables.xlsx"), sheet = .x, na = c("N/A", "Missing")))
+
+
+df_list <- lapply(df_list,clean_names)
+
+remove_na_columns <- function(df) {
+  df[, colSums(is.na(df)) == 0]
+}
+
+# Apply the function to each dataframe in the list to remove empty columns
+df_list_cleaned <- lapply(df_list, remove_na_columns)
+
+
+##### remove useless or empty columns ------------------------------------
+#useless columns
+df <- df %>%
+  select(-starts_with("x")) # removes columns that have info but are not named
+
+#removes empty columns
+df <- df %>%
+  select(where(~ !all(is.na(.x) | .x == "")))
+```
+
+
+
+```{python}
+#| label: AI
+#| eval: FALSE
+
+
+"""
+
+You are a biostatistician. 
+
+
+Write R code to do FOUR kaplan-Meier (KM) analyses on this dataset. 
+
+STEP ONE (write R code to create two new variables)
+  (a) for overall survival, calculate the time in months between date of diagnosis ("date_of_dx_d0_for_os") and date of death or censoring ("date_of_dx_d0_for_os"). Call that variable "time_os_months"
+
+  (b) for progression free survival, calculate the time in months between end of radiation ("date_of_rt2_end_d0_for_pfs") and date of progression or censoring ("date_of_rec2_end_for_pfs"). Call that variable "time_pfs_months"
+
+
+STEP TWO
+Write R code to do:
+  (a) a KM analysis for overall survival using  time_os_months and the event variable "alive_0_or_dead_1"
+  (b) a KM analysis by group for overall survival using  time_os_months, the event variable "alive_0_or_dead_1", and the grouping variable "group_name_hfrt_or_crt". Include a graph and log rank test. Put the p-value of the log-rank test on the graph.
+  (c) a KM analysis for overall pfs using  time_pfs_months and the event variable "recurrence_0_or_no_recurrence_1"
+  (d) a KM analysis by group for pfs using  time_pfs_months, the event variable "recurrence_0_or_no_recurrence_1", and the grouping variable "group_name_hfrt_or_crt". Include a graph and log rank test. Put the p-value of the log-rank test on the graph.
+
+STEP THREE
+Write R code to 
+  (a) do descriptive statistics on "toxicities_y_or_n", "worse_than_g1_tox_y_or_n",  "alopecia" , "fatigue", "dermatitis",  "ha", "other".
+  (b) do non-parametric group testing using the grouping variable "group_name_hfrt_or_crt" for the variables "toxicities_y_or_n", "worse_than_g1_tox_y_or_n",  "alopecia" , "fatigue", "dermatitis",  "ha", "other".
+  
+STEP FOUR
+Write the statistical methods section of a manuscript describing the statistical analysis that was done in STEP ONE, STEP TWO, AND STEP THREE.
+
+"""
+```
+
+# Results
+
+## Table One
+
+```{r}
+#| label: tbl-one
+
+
+library(dplyr)
+library(gtsummary)
+library(flextable)
+
+# OPTIONAL: list columns to include (otherwise it will use all)
+# vars_for_summary <- c("x1", "x2", "x3", "group_var")
+
+by_var <- "GROUP_VAR"  # <- replace with your grouping variable name
+
+df %>%
+  # If you defined vars_for_summary above, use:
+  # select(all_of(vars_for_summary)) %>%
+  tbl_summary(
+    by   = all_of(by_var),
+    digits = all_continuous() ~ 3,
+    type = list(
+      all_continuous()  ~ "continuous2",  # enables two-lines stats per continuous var
+      all_dichotomous() ~ "categorical"   # show BOTH levels for 0/1 variables
+    ),
+    statistic = list(
+      all_continuous2() ~ c("{mean} ({sd})", "{median} ({min}/{max})"),
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous()  ~ "kruskal.test",  # robust across distributions
+    all_categorical() ~ "fisher.test"    # safe for small counts
+  )) %>%
+  add_stat_label(label = all_continuous2() ~ c("Mean (SD)", "Median (Min/Max)")) %>%
+  bold_labels() %>%                                       # <-- bold variable labels
+  modify_header(label = "**Table X. Descriptive Summary by Group**") %>%  # <-- title
+  as_flex_table() %>%
+  flextable::set_table_properties(width = 1, layout = "autofit") %>%
+  flextable::fontsize(size = 8)
+```
+
+
+
+
+
+
+
+\vspace{5cm}
+
+## Software References
+
+TBD
+
+```{r}
+#| label: references
+#| eval: false
+
+# Get citation for R without the extra message or BibTeX
+r_citation <- citation()
+print(r_citation, style = "text")  # Suppresses extra messages and BibTeX
+
+
+
+# Utility to print version and non-BibTeX citation for a package
+print_pkg_info <- function(pkg) {
+  # Header line
+  cat(sprintf("#------------ %s ---------\n", pkg))
+  # Version
+  ver <- as.character(utils::packageVersion(pkg))
+  cat(pkg, "package version:", ver, "\n")
+  # Citation (text style to suppress BibTeX)
+  cit <- utils::citation(pkg)
+  print(cit, style = "text")
+  cat("\n\n")
+}
+
+# Packages requested
+pkgs <- c("stringr", "brms", "survival", "posterior", "purrr", "bayesplot", "rstan","pwr", "tidyverse", "gtsummary", "stats", "ggplot2")
+
+# Print info for each
+invisible(lapply(pkgs, print_pkg_info))
+
+
+```
+
+
+**End of Document**
