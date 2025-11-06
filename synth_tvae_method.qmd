@@ -1,0 +1,449 @@
+---
+title: "Analysis"
+date: "`r Sys.Date()`"
+author: "Rich Evans, PhD, PSTAT"
+format: pdf
+number-sections: true
+execute: 
+  echo: true
+output-file: "analysis_results"
+reticulate:
+  python: "/Users/richardevans/.virtualenvs/r-reticulate/bin/python"
+---
+
+Got it! Here’s a compact, ready-to-run R script that:
+	1.	Generates a practice dataset: first column is a binary class (0/1), second and third are continuous diagnostic tests, each correlated with the class (and moderately with each other).
+	2.	Uses reticulate to call Python’s SDV TVAE and create a synthetic dataset with similar structure.
+
+Paste this whole script into R. It will install missing Python deps if needed, fit TVAE, and return a synthetic data.frame.
+
+
+
+```{r}
+# Restart R first!
+Sys.setenv(RETICULATE_PYTHON="~/.virtualenvs/r-reticulate/bin/python")
+
+library(reticulate)
+py_config()  # should show ~/.virtualenvs/r-reticulate/bin/python
+
+
+py_run_string("
+import sys, subprocess
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'])
+")
+
+
+py_install('torch', pip = TRUE)
+
+py_install(c('sdv==1.12.1', 'rdt>=1.10.0', 'copulas>=0.11.0'), pip = TRUE)
+
+pd   <- import("pandas")
+sdvT <- import("sdv.tabular")   # <- this is where it previously failed
+TVAE <- sdvT$TVAE
+pd$`__version__`
+
+```
+
+
+```{r}
+#| label: setup
+#| echo: false
+#| include: false
+
+# a little template for installing. BUT perhaps better to use pacman for many packages
+# if (!requireNamespace("bnlearn", quietly = TRUE)) {
+#   install.packages("bnlearn", quietly = TRUE)}
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  echo = FALSE,         # Show code by default
+  warning = FALSE,     # Hide warnings in the output
+  message = FALSE,     # Hide messages in the output
+  fig.width = 4,       # Default figure width
+  fig.height = 2.666,      # Default figure height
+  fig.align = "center" # Center align figures
+)
+
+# Set seed for reproducibility
+set.seed(1234)
+
+```
+
+
+
+```{r}
+# --- point reticulate to your env first (restart R if needed) ---
+# Sys.setenv(RETICULATE_PYTHON="~/.virtualenvs/r-reticulate/bin/python")
+
+
+# ---- practice data ----
+set.seed(123)
+n <- 1000
+class <- rbinom(n, 1, 0.5)
+mu0 <- c(0, 0); mu1 <- c(1.25, 0.9)
+Sigma <- matrix(c(1, 0.35, 0.35, 1), 2, 2)
+rmvnorm2 <- function(n, mean, Sigma){ L <- chol(Sigma); Z <- matrix(rnorm(2*n), ncol=2); sweep(Z %*% L, 2, mean, "+") }
+x <- matrix(NA_real_, n, 2)
+x[class==0,] <- rmvnorm2(sum(class==0), mu0, Sigma)
+x[class==1,] <- rmvnorm2(sum(class==1), mu1, Sigma)
+df <- data.frame(class=as.integer(class), test1=x[,1], test2=x[,2])
+
+# ---- Python imports (install if needed) ----
+try(import("sdv"), silent=TRUE);  # ensures sdv is there; install via py_install if not
+pd  <- import("pandas")
+sdvS <- import("sdv.single_table")
+sdvM <- import("sdv.metadata")
+sdvSampling <- import("sdv.sampling")
+
+# ---- metadata via SingleTableMetadata (works across SDV versions) ----
+SingleTableMetadata <- sdvM$SingleTableMetadata
+metadata <- SingleTableMetadata()
+py_df <- r_to_py(df)
+metadata$detect_from_dataframe(data = py_df)  # single-table autodetect
+
+# ---- TVAE fit ----
+TVAESynthesizer <- sdvS$TVAESynthesizer
+tvae <- TVAESynthesizer(metadata = metadata, epochs = as.integer(250))
+tvae$fit(py_df)
+
+# ---- conditional sampling so 'class' is fixed ----
+# Try DataFrameCondition (keeps exact sequence). If not present, fall back to Condition blocks.
+synthetic_df <- NULL
+have_dfcond <- TRUE
+DataFrameCondition <- NULL
+tryCatch({ DataFrameCondition <<- sdvSampling$DataFrameCondition },
+         error = function(e) have_dfcond <<- FALSE)
+
+if (have_dfcond) {
+  # Exact row-by-row fixed class via DataFrameCondition
+  cond_df <- pd$DataFrame(dict(class = r_to_py(df$class)))
+  cond <- DataFrameCondition(dataframe = cond_df)
+  py_syn <- tvae$sample_from_conditions(list(cond))
+  synthetic_df <- py_to_r(py_syn)
+} else {
+  # Fallback: two bulk conditions, then restore the original class order
+  Condition <- sdvSampling$Condition
+  n0 <- sum(df$class == 0L); n1 <- sum(df$class == 1L)
+  c0 <- Condition(num_rows = as.integer(n0), column_values = dict(class = 0L))
+  c1 <- Condition(num_rows = as.integer(n1), column_values = dict(class = 1L))
+  py_syn <- tvae$sample_from_conditions(list(c0, c1))
+  synthetic_df <- py_to_r(py_syn)
+  # ensure columns and restore exact original class vector (sequence unchanged)
+  synthetic_df <- synthetic_df[, c("class","test1","test2")]
+  synthetic_df$class <- df$class
+}
+
+# ---- sanity checks (optional) ----
+cat("\nhead(original):\n"); print(head(df))
+cat("\nhead(synthetic):\n"); print(head(synthetic_df))
+cat("\ncor(original):\n"); print(cor(df[c("test1","test2")]))
+cat("\ncor(synthetic):\n"); print(cor(synthetic_df[c("test1","test2")]))
+cat("\nclass balance (orig vs synth):\n")
+print(prop.table(table(df$class))); print(prop.table(table(synthetic_df$class)))
+
+head(df)
+
+head(synthetic_df)
+```
+
+
+
+
+How to use
+	•	Change n_synth to the number of rows you want.
+	•	Set p_class1 to your desired proportion of class==1 (e.g., 0.30, 0.5, 0.85, etc.).
+	•	The code does not overwrite the synthetic class column; it’s generated via conditional sampling to match your target mix.
+
+If you later want to condition on multiple variables (e.g., class and sex), create a set of Condition(...) objects for each combination with desired num_rows, and pass them in the list to sample_from_conditions().
+
+```{r}
+# --- 0) Environment (set once per session) ---
+# Sys.setenv(RETICULATE_PYTHON="~/.virtualenvs/r-reticulate/bin/python")
+library(reticulate)
+
+# Imports (assumes sdv/pandas/numpy/torch are installed in the chosen Python)
+pd            <- import("pandas")
+sdvS          <- import("sdv.single_table")
+sdvM          <- import("sdv.metadata")
+sdvSampling   <- import("sdv.sampling")
+
+# --- 1) Practice dataset (same as before) ---
+set.seed(123)
+n <- 1000
+class <- rbinom(n, 1, 0.5)
+
+mu0 <- c(0, 0); mu1 <- c(1.25, 0.9)
+Sigma <- matrix(c(1, 0.35, 0.35, 1), 2, 2)
+rmvnorm2 <- function(n, mean, Sigma){
+  L <- chol(Sigma); Z <- matrix(rnorm(2*n), ncol=2)
+  sweep(Z %*% L, 2, mean, "+")
+}
+x <- matrix(NA_real_, nrow=n, ncol=2)
+x[class==0,] <- rmvnorm2(sum(class==0), mu0, Sigma)
+x[class==1,] <- rmvnorm2(sum(class==1), mu1, Sigma)
+
+df <- data.frame(
+  class = as.integer(class),
+  test1 = x[,1],
+  test2 = x[,2]
+)
+
+# --- 2) Fit TVAE (SingleTableMetadata for broad SDV compatibility) ---
+SingleTableMetadata <- sdvM$SingleTableMetadata
+metadata <- SingleTableMetadata()
+py_df <- r_to_py(df)
+metadata$detect_from_dataframe(data = py_df)
+
+TVAESynthesizer <- sdvS$TVAESynthesizer
+tvae <- TVAESynthesizer(metadata = metadata, epochs = as.integer(250))
+tvae$fit(py_df)
+
+# --- 3) Choose synthetic size and class proportion (edit these) ---
+n_synth   <- 1000        # how many synthetic rows you want
+p_class1  <- 0.70        # desired proportion for class==1 (e.g., 70%)
+# safety: keep within [0,1]
+p_class1  <- max(0, min(1, p_class1))
+
+# counts (ensure at least 1 row per class if both are nonzero proportions)
+n1 <- round(n_synth * p_class1)
+n0 <- n_synth - n1
+if (p_class1 > 0 && n1 == 0) n1 <- 1
+if (p_class1 < 1 && n0 == 0) n0 <- 1
+# adjust back to exact n_synth if we changed something
+if (n0 + n1 != n_synth) {
+  # nudge the larger one to fix total
+  if (n1 > n0) n1 <- n1 - ((n0 + n1) - n_synth) else n0 <- n0 - ((n0 + n1) - n_synth)
+}
+
+# --- 4) Conditional sampling for the requested mix (do NOT overwrite class) ---
+Condition <- sdvSampling$Condition
+conds <- list(
+  Condition(num_rows = as.integer(n0), column_values = dict(class = 0L)),
+  Condition(num_rows = as.integer(n1), column_values = dict(class = 1L))
+)
+
+py_syn <- tvae$sample_from_conditions(conds)
+synthetic_df <- py_to_r(py_syn)
+
+# Optional: shuffle rows so classes aren’t in two big blocks
+set.seed(42)
+synthetic_df <- synthetic_df[sample.int(nrow(synthetic_df)), ]
+row.names(synthetic_df) <- NULL
+
+# Ensure column order
+synthetic_df <- synthetic_df[, c("class","test1","test2")]
+
+# --- 5) Quick checks (optional) ---
+cat("\nTarget class1 proportion:", p_class1, "\n")
+cat("Actual synthetic proportions:\n")
+print(prop.table(table(synthetic_df$class)))
+
+cat("\nCor(original test1,test2):\n"); print(cor(df[c("test1","test2")]))
+cat("\nCor(synthetic test1,test2):\n"); print(cor(synthetic_df[c("test1","test2")]))
+
+# Objects:
+# - df            : original practice dataset
+# - synthetic_df  : synthetic dataset with your chosen class mix (not fixed to df)
+```
+
+
+Great—here’s a drop-in rewrite where both diagnostic tests are binary (0/1) and the synthetic data are also binary.
+Key tweaks vs. your previous script:
+	•	The practice data now simulate test1/test2 as Bernoulli variables with class-specific rates.
+	•	We explicitly tell SDV (via metadata) that class, test1, and test2 are boolean so it learns/generates 0/1.
+	•	Conditional sampling controls the synthetic class proportion (not fixed to the original).
+
+
+```{r}
+
+# --- 0) Setup (restart R first if you switched Python) ---
+# Sys.setenv(RETICULATE_PYTHON="~/.virtualenvs/r-reticulate/bin/python")
+library(reticulate)
+
+pd          <- import("pandas")
+sdvS        <- import("sdv.single_table")
+sdvM        <- import("sdv.metadata")
+sdvSampling <- import("sdv.sampling")
+
+# --- 1) Practice binary data (0/1) ---
+set.seed(123)
+n <- 1000
+class <- rbinom(n, 1, 0.5)
+p1_0 <- 0.15; p2_0 <- 0.10; p1_1 <- 0.75; p2_1 <- 0.65
+test1 <- ifelse(class==1, rbinom(n,1,p1_1), rbinom(n,1,p1_0))
+test2 <- ifelse(class==1, rbinom(n,1,p2_1), rbinom(n,1,p2_0))
+
+df <- data.frame(
+  class = as.integer(class),
+  test1 = as.integer(test1),
+  test2 = as.integer(test2)
+)
+
+# --- 2) Metadata: declare 0/1 as categorical (robust across versions) ---
+SingleTableMetadata <- sdvM$SingleTableMetadata
+metadata <- SingleTableMetadata()
+metadata$add_column(column_name = "class", sdtype = "categorical")
+metadata$add_column(column_name = "test1", sdtype = "categorical")
+metadata$add_column(column_name = "test2", sdtype = "categorical")
+
+py_df <- r_to_py(df)
+
+TVAESynthesizer <- sdvS$TVAESynthesizer
+tvae <- TVAESynthesizer(metadata = metadata, epochs = as.integer(250))
+tvae$fit(py_df)
+
+# (Optional) Validate training data against metadata & do a tiny smoke sample
+metadata$validate_data(py_df)
+invisible(tvae$sample(as.integer(5L)))
+
+# --- 3) Target synthetic size & class mix ---
+n_synth  <- 1000
+p_class1 <- 0.70
+p_class1 <- max(0, min(1, p_class1))
+n1 <- round(n_synth * p_class1); n0 <- n_synth - n1
+if (p_class1 > 0 && n1 == 0) n1 <- 1
+if (p_class1 < 1 && n0 == 0) n0 <- 1
+if (n0 + n1 != n_synth) {
+  if (n1 > n0) n1 <- n1 - ((n0 + n1) - n_synth) else n0 <- n0 - ((n0 + n1) - n_synth)
+}
+
+# --- 4) Conditional sampling with Condition blocks (no DataFrameCondition) ---
+Condition <- sdvSampling$Condition
+conds <- list(
+  Condition(num_rows = as.integer(n0), column_values = dict(class = 0L)),
+  Condition(num_rows = as.integer(n1), column_values = dict(class = 1L))
+)
+
+py_syn <- tvae$sample_from_conditions(conds)
+synthetic_df <- py_to_r(py_syn)
+
+# Shuffle to avoid two big class blocks (optional)
+set.seed(42)
+synthetic_df <- synthetic_df[sample.int(nrow(synthetic_df)), ]
+row.names(synthetic_df) <- NULL
+
+# Ensure column order and 0/1 integers
+synthetic_df <- within(synthetic_df[, c("class","test1","test2")], {
+  class <- as.integer(class); test1 <- as.integer(test1); test2 <- as.integer(test2)
+})
+
+# --- 5) Quick checks ---
+cat("\nTarget class1 proportion:", p_class1, "\n")
+print(prop.table(table(synthetic_df$class)))
+
+
+
+```
+
+
+
+Excellent question — this is a classic diagnostic test evaluation problem, especially when both tests are measured on the same subjects.
+You’re asking how to check whether the two tests are conditionally independent given the true disease status (or another conditioning variable).
+
+Let’s unpack it clearly, both conceptually and practically (with R examples).
+
+⸻
+
+🧠 1. The idea
+
+Two diagnostic tests, say T_1 and T_2, are said to be conditionally independent given disease status D if:
+
+P(T_1, T_2 \mid D) = P(T_1 \mid D) \, P(T_2 \mid D)
+
+This means that once you know whether the subject truly has the disease, the results of the two tests are unrelated.
+
+In words:
+
+Any residual correlation between the tests disappears once you control for the disease.
+
+⸻
+
+⚙️ 2. What data you need
+
+For each subject:
+	•	True disease status: D (0 = no disease, 1 = disease)
+	•	Two test results: T1, T2 (binary or continuous)
+
+Let’s handle each case separately.
+
+⸻
+
+🧩 3. If both tests are binary
+
+You can test conditional independence within each stratum of the disease status.
+
+🔹 Step 1 — Create 2×2 tables stratified by disease
+
+library(dplyr)
+
+# example data
+set.seed(1)
+df <- data.frame(
+  D  = rbinom(100, 1, 0.5),
+  T1 = rbinom(100, 1, 0.7),
+  T2 = rbinom(100, 1, 0.7)
+)
+
+# Stratified 2x2 tables
+table(df$T1, df$T2, df$D)
+
+🔹 Step 2 — Test independence within each disease stratum
+
+by(df, df$D, function(sub)
+  chisq.test(table(sub$T1, sub$T2), correct = FALSE)
+)
+
+If both p-values are not significant, you have no evidence against conditional independence.
+
+Alternatively, you can test the association between T1 and T2 using a Mantel–Haenszel test that controls for D:
+
+mantelhaen.test(table(df$T1, df$T2, df$D))
+
+If the Mantel–Haenszel common odds ratio ≈ 1 (and p > 0.05), that supports conditional independence.
+
+⸻
+
+🧮 4. If the tests are continuous
+
+Then you check whether they’re correlated after conditioning on D — essentially, the partial correlation between T_1 and T_2 controlling for D.
+
+library(ppcor)
+pcor.test(df$T1, df$T2, df$D, method = "spearman")
+
+If the partial correlation ≈ 0 and not significant, the tests are conditionally independent given disease status.
+
+⸻
+
+📊 5. If true disease status is unknown (latent class model)
+
+Then you can’t stratify by D, so you need to use a latent class model (LCM) to test conditional independence.
+
+For example, using the poLCA or BayesLCA packages in R:
+
+library(poLCA)
+
+# suppose both T1 and T2 are binary
+f <- cbind(T1, T2) ~ 1
+fit1 <- poLCA(f, df, nclass = 2, graphs = FALSE, maxiter = 1000)
+
+# Compare with model that allows conditional dependence via direct effect
+# (if available, or use log-linear model comparison)
+
+The standard LCM assumption is conditional independence given latent class (disease).
+You can test this by comparing a model that includes a local dependence parameter (e.g., log-linear term for T_1 \times T_2) versus one that omits it.
+
+⸻
+
+✅ Summary
+
+Case	How to Check Conditional Independence
+Binary tests, known disease	Chi-square or Mantel–Haenszel test within each disease group
+Continuous tests, known disease	Partial correlation (e.g., Spearman) controlling for disease
+Disease status unknown	Latent class model with/without dependence parameter
+
+
+⸻
+
+Would you like me to show an R example where we simulate two binary diagnostic tests with dependence and formally test for conditional independence given disease? That’s often the best way to see it in practice.
+
+**End of Document**
