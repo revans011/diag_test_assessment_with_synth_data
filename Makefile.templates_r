@@ -1,0 +1,31 @@
+# Makefile to clone a GitHub repo into the current directory (even if not empty)
+# and unlink its remote
+
+# ===== Variables =====
+REPO_URL = https://github.com/revans011/r_code.git
+LOCAL_DIR := $(notdir $(basename $(REPO_URL)))
+
+# ===== Default target =====
+all: clone unlink
+
+# ===== Clone the repository into a temporary subfolder =====
+clone:
+	@if [ -d ".git" ]; then \
+		echo "❌ A Git repository already exists here. Aborting clone."; \
+	else \
+		echo "🚀 Cloning $(REPO_URL) into temporary folder $(LOCAL_DIR)..."; \
+		git clone $(REPO_URL) $(LOCAL_DIR); \
+		echo "📦 Moving contents of $(LOCAL_DIR) into current directory..."; \
+		mv $(LOCAL_DIR)/* $(LOCAL_DIR)/.[!.]* . 2>/dev/null || true; \
+		rm -rf $(LOCAL_DIR); \
+		echo "✅ Repository files copied into current directory."; \
+	fi
+
+# ===== Remove the remote origin =====
+unlink:
+	@if [ -d ".git" ]; then \
+		git remote remove origin && \
+		echo "🧹 Remote 'origin' removed — this repo is now local only."; \
+	else \
+		echo "❌ No .git directory found — not a Git repository."; \
+	fi

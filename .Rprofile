@@ -145,7 +145,9 @@ glimpz <- function(.data, n = 5, suppress_message = FALSE){
 
   return(result |> arrange(Variable))
 }
+#---------------------------
 
+Sys.setenv(RETICULATE_PYTHON="~/.virtualenvs/r-reticulate/bin/python")
 #----------------------------------
 
 message("created function: processDataframeFor_tbl_summary, glimpz, and format_decimals")
