@@ -1,5 +1,5 @@
-message("Loading .Rprofile")
-message("Welcome to the R session for Intra and Trans.")
+message("Loading custom .Rprofile")
+
 
 
 if (file.exists(".RData")) {
@@ -153,3 +153,5 @@ Sys.setenv(RETICULATE_PYTHON="~/.virtualenvs/r-reticulate/bin/python")
 message("created function: processDataframeFor_tbl_summary, glimpz, and format_decimals")
 
 message("Finished loading the .Rprofile")
+
+
