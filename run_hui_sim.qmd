@@ -1,0 +1,69 @@
+---
+title: "Analysis"
+date: "`r Sys.Date()`"
+author: "Rich Evans, PhD, PSTAT"
+format: pdf
+number-sections: true
+execute: 
+  echo: true
+output-file: "analysis_results"
+reticulate:
+  python: "/Users/richardevans/.virtualenvs/r-reticulate/bin/python"
+---
+
+This runs everything
+
+
+The upshot is that big training sets (n=10,000) work even when there are different class proportion (but not extreme) in the training set and the synthetic set. I need at least 5000 in the smallest class
+
+Also, boundary se and sp are harder to get right. sp=.9 seems to go wrong for example
+
+Also, a large training set means that fewer epochs are required.
+
+
+what is interesting is that for small, n=1000 training sets, specificity always seems to fail first, regardless of large (p=0.75) or small (p=0.25). 
+
+
+```{r}
+source(here::here("hui_tvae_functions.R"))
+```
+
+
+```{r}
+
+df <- generate_real_data(class0 = 5000 
+                          , class1 = 5000 #count in class =1
+                          ,p1_0 = 0.2 # 1 - sp test 1
+                          ,p1_1 = 0.8 #se test 1
+                          ,p2_0 = 0.10 # 1 -sp test 2
+                          ,p2_1 = 0.8) # se test 2
+
+
+res <- tvae_synthesize_binary(df, n_synth = 5000, p_class1 = 0.8, epochs = 100)
+#head(res$synthetic_df)
+#res$diagnostics
+
+print(list(calc_se_sp_ci(df),calc_se_sp_ci(res$synthetic_df)))
+
+#plot(res$training_loss$Epoch, res$training_loss$Loss, type="l", lwd=2)
+#res$training_loss$loss
+```
+
+
+
+```{r}
+
+hui <- hui_walter_mle_se(table(df$test1,df$test2), table(res$synthetic_df$test1,res$synthetic_df$test2))
+
+#se and sp estimates
+#res$estimates   # MLEs on probability scale
+
+#Check
+list(hui$estimates, calc_se_sp_ci(df),calc_se_sp_ci(res$synthetic_df))
+
+hui$se          # standard errors (Wald)
+hui$ci          # Wald 95% CIs
+hui$logLik
+```
+
+GaussianCopulaSynthesizer SEEMS TO DO WORSE THAN TVAE do not use

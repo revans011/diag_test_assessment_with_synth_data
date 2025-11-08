@@ -1,0 +1,17 @@
+---
+title: "Analysis"
+date: "`r Sys.Date()`"
+author: "Rich Evans, PhD, PSTAT"
+format: pdf
+number-sections: true
+execute: 
+  echo: true
+output-file: "analysis_results"
+reticulate:
+  python: "/Users/richardevans/.virtualenvs/r-reticulate/bin/python"
+---
+
+```{r}
+source(here("hui_synth_tvae_method_binary_diag2.qmd"))
+```
+
