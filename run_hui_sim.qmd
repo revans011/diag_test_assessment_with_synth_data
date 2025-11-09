@@ -32,7 +32,7 @@ library(tictoc)
 
 tic("time_hui_sim")
 
-results <- replicate(500,  
+results <- replicate(50,  
   hui.sim(
      p_class1_real = 0.7 # class proportion for the "real" training set
     ,p_class1 =      0.3 # class proportion for the synth
@@ -42,7 +42,7 @@ results <- replicate(500,
     ,p1_1 =          0.9     #se test 1
     ,p2_0 =          0.2    # 1 -sp test 2
     ,p2_1 =          0.8     # se test 2  
-    , epochs =       200  #number of training epochs
+    , epochs =       100  #number of training epochs
   ))
 
 
