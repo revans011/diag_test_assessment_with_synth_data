@@ -287,7 +287,9 @@ list(
 }
 
 
+################# hui and walter conditional INdependence ###########
 
+#note that it has the same name as the cond dep version below
 
 # Hui–Walter MLE (2 tests × 2 populations), with SEs and Wald CIs
 # pop1, pop2: 2x2 integer matrices (rows T1=0/1, cols T2=0/1)
@@ -397,6 +399,156 @@ hui_walter_mle_se <- function(pop1, pop2, conf_level = 0.95) {
 #                   35, 115), nrow = 2, byrow = TRUE)
 
 #res <- hui_walter_mle_se(pop1, pop2)
+
+
+################# hui and walter conditional DEPendence ###########
+
+hui_walter_mle_se <- function(pop1, pop2, conf_level = 0.95) {
+  stopifnot(is.matrix(pop1), is.matrix(pop2),
+            all(dim(pop1) == c(2,2)), all(dim(pop2) == c(2,2)))
+  invlogit <- function(eta) 1/(1+exp(-eta))
+  logit    <- function(p) log(p/(1-p))
+  
+  # Conditional-dependence cell probabilities, shared gamma_D and gamma_ND across pops
+  Pcells_dep <- function(se1, sp1, se2, sp2, pi, gamma_D, gamma_ND) {
+    # diseased block (weight = pi)
+    p11_D <- se1*se2               + gamma_D
+    p10_D <- se1*(1-se2)           - gamma_D
+    p01_D <- (1-se1)*se2           - gamma_D
+    p00_D <- (1-se1)*(1-se2)       + gamma_D
+    # non-diseased block (weight = 1-pi)
+    fp1   <- 1 - sp1
+    fp2   <- 1 - sp2
+    p11_N <- fp1*fp2               + gamma_ND
+    p10_N <- (1-sp1)*sp2           - gamma_ND  # T1+, T2-
+    p01_N <- sp1*(1-sp2)           - gamma_ND  # T1-, T2+
+    p00_N <- sp1*sp2               + gamma_ND
+    
+    c(
+      p00 = pi*p00_D + (1-pi)*p00_N,
+      p01 = pi*p01_D + (1-pi)*p01_N,
+      p10 = pi*p10_D + (1-pi)*p10_N,
+      p11 = pi*p11_D + (1-pi)*p11_N
+    )
+  }
+  
+  # Bounds for covariance terms to keep cell probs valid (Albert & Dodd style)
+  gamma_bounds_D <- function(se1, se2) {
+    lower <- max(-se1*se2, -(1-se1)*(1-se2))
+    upper <- min(se1*(1-se2), (1-se1)*se2)
+    c(lower, upper)
+  }
+  gamma_bounds_N <- function(sp1, sp2) {
+    # Work with fp = 1 - sp to mirror "positivity" on non-diseased
+    fp1 <- 1 - sp1; fp2 <- 1 - sp2
+    lower <- max(-fp1*fp2, -sp1*sp2)
+    upper <- min(fp1*sp2, sp1*fp2)
+    c(lower, upper)
+  }
+  
+  # Negative log-likelihood
+  nll <- function(par) {
+    se1 <- invlogit(par[1]); sp1 <- invlogit(par[2])
+    se2 <- invlogit(par[3]); sp2 <- invlogit(par[4])
+    pi1 <- invlogit(par[5]); pi2 <- invlogit(par[6])
+    
+    # map unconstrained pars par[7:8] to gamma_D, gamma_ND within their bounds
+    bD <- gamma_bounds_D(se1, se2)
+    bN <- gamma_bounds_N(sp1, sp2)
+    gamma_D  <- bD[1] + (bD[2] - bD[1]) * invlogit(par[7])
+    gamma_ND <- bN[1] + (bN[2] - bN[1]) * invlogit(par[8])
+    
+    p1 <- pmax(Pcells_dep(se1, sp1, se2, sp2, pi1, gamma_D, gamma_ND), 1e-12)
+    p2 <- pmax(Pcells_dep(se1, sp1, se2, sp2, pi2, gamma_D, gamma_ND), 1e-12)
+    
+    x1 <- c(pop1[1,1], pop1[1,2], pop1[2,1], pop1[2,2])  # (00,01,10,11)
+    x2 <- c(pop2[1,1], pop2[1,2], pop2[2,1], pop2[2,2])
+    
+    -(sum(x1*log(p1)) + sum(x2*log(p2)))
+  }
+  
+  # crude starting values (same spirit as CI case; dependence starts near 0 via mid-bounds)
+  N1 <- sum(pop1); N2 <- sum(pop2)
+  t1pos <- (pop1[2,1]+pop1[2,2] + pop2[2,1]+pop2[2,2])/(N1+N2)
+  t2pos <- (pop1[1,2]+pop1[2,2] + pop2[1,2]+pop2[2,2])/(N1+N2)
+  pclip <- function(p) pmax(0.05, pmin(0.95, p))
+  par0 <- c(logit(pclip(t1pos+0.2)), logit(pclip(1-t1pos+0.2)),
+            logit(pclip(t2pos+0.2)), logit(pclip(1-t2pos+0.2)),
+            logit(0.3), logit(0.7),
+            0.0, 0.0) # unconstrained mids for gamma_D, gamma_ND
+  
+  fit <- optim(par0, nll, method = "BFGS", hessian = TRUE, control = list(maxit = 1e4))
+  if (fit$convergence != 0)
+    warning("optim did not fully converge (code = ", fit$convergence, ").")
+  
+  # transform back for the 6 reported parameters (keep names/structure the same)
+  est6 <- invlogit(fit$par[1:6])
+  names(est6) <- c("Se1","Sp1","Se2","Sp2","Prev_pop1","Prev_pop2")
+  
+  # variance-covariance for logits -> delta to probability scale (only first 6 reported)
+  gprime <- function(eta) { p <- invlogit(eta); p*(1-p) }
+  
+  cov_eta <- try(solve(fit$hessian), silent = TRUE)
+  if (inherits(cov_eta, "try-error")) {
+    if (!requireNamespace("numDeriv", quietly = TRUE))
+      stop("numDeriv needed for numerical Hessian fallback. Install it or re-run.")
+    cov_eta <- try(solve(numDeriv::hessian(nll, fit$par)), silent = TRUE)
+  }
+  
+  if (inherits(cov_eta, "try-error")) {
+    se6 <- rep(NA_real_, 6)
+    cov_p6 <- matrix(NA_real_, 6, 6)
+  } else {
+    # J is 6x8: derivatives only for first 6 invlogits; zeros for gamma params
+    J6 <- matrix(0, nrow = 6, ncol = length(fit$par))
+    diag(J6)[1:6] <- gprime(fit$par[1:6])
+    cov_p6 <- J6 %*% cov_eta %*% t(J6)
+    se6 <- sqrt(pmax(diag(cov_p6), 0))
+  }
+  names(se6) <- names(est6)
+  
+  # Wald CIs
+  z <- qnorm(0.5 + conf_level/2)
+  ci <- t(mapply(function(p, s) c(lower = max(0, p - z*s), upper = min(1, p + z*s)),
+                 est6, se6))
+  rownames(ci) <- names(est6)
+  
+  # Recover MLE gammas to form expected counts
+  # (use the same transform as in nll at the optimum)
+  se1_hat <- est6["Se1"]; sp1_hat <- est6["Sp1"]
+  se2_hat <- est6["Se2"]; sp2_hat <- est6["Sp2"]
+  pi1_hat <- est6["Prev_pop1"]; pi2_hat <- est6["Prev_pop2"]
+  
+  bD_hat <- gamma_bounds_D(se1_hat, se2_hat)
+  bN_hat <- gamma_bounds_N(sp1_hat, sp2_hat)
+  gamma_D_hat  <- bD_hat[1] + (bD_hat[2] - bD_hat[1]) * invlogit(fit$par[7])
+  gamma_ND_hat <- bN_hat[1] + (bN_hat[2] - bN_hat[1]) * invlogit(fit$par[8])
+  
+  expected_pop1 <- round(Pcells_dep(se1_hat, sp1_hat, se2_hat, sp2_hat, pi1_hat,
+                                    gamma_D_hat, gamma_ND_hat) * N1, 2)
+  expected_pop2 <- round(Pcells_dep(se1_hat, sp1_hat, se2_hat, sp2_hat, pi2_hat,
+                                    gamma_D_hat, gamma_ND_hat) * N2, 2)
+  
+  list(
+    estimates = est6,
+    se = se6,
+    ci = ci,
+    cov_logit = cov_eta,     # now 8x8 (includes gamma params)
+    cov_prob  = cov_p6,      # 6x6 for returned probabilities
+    logLik = -fit$value,
+    convergence = fit$convergence,
+    expected = list(
+      pop1 = expected_pop1,
+      pop2 = expected_pop2
+    )
+  )
+}
+
+
+################### end hui and walter cond DEP##########
+
+
+
 
 
 #now the simulation function that returns a 3D array
