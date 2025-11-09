@@ -9,12 +9,17 @@
 # --- 1) Practice binary data (0/1) ---
 #set.seed(123)
 
-generate_real_data <- function(class0 = 250 #count in class =0
-                          ,class1= 750 #count in class =1
+generate_real_data <- function(
+                          p_class1_real = 0.8
+                          ,n_real = 500
                           ,p1_0 = 0.15 # 1 - sp test 1
                           ,p1_1 = 0.75 #se test 1
                           ,p2_0 = 0.10 # 1 -sp test 2
                           ,p2_1 = 0.65){ # se test 2
+
+class1 = as.integer(p_class1_real * n_real)
+class0 = as.integer(n_real - class1)
+  
 n <- class0+class1
 class <- c(rep(0,class0),rep(1,class1)) # prevalence 75%
 
@@ -393,3 +398,105 @@ hui_walter_mle_se <- function(pop1, pop2, conf_level = 0.95) {
 
 #res <- hui_walter_mle_se(pop1, pop2)
 
+
+#now the simulation function that returns a 3D array
+
+hui.sim <- function(
+    p_class1_real = 0.8
+    ,n_real = 500
+    ,p1_0 = 0.2     # 1 - sp test 1
+    ,p1_1 = 0.8     #se test 1
+    ,p2_0 = 0.10    # 1 -sp test 2
+    ,p2_1 = 0.8     # se test 2  
+    ,n_synth = 5000 # n for the tvae
+    , p_class1 = 0.8 # class proportion for the tvae
+    , epochs = 100  #number of training epochs
+  ) {
+  
+  #####"real" dataset
+  df <- generate_real_data( p_class1_real = p_class1_real
+                            ,n_real = n_real
+                           ,p1_0 = p1_0 # 1 - sp test 1
+                           ,p1_1 = p1_1 #se test 1
+                           ,p2_0 = p2_0 # 1 -sp test 2
+                           ,p2_1 = p2_1) # se test 2
+  
+  
+  ######generate synthetic dataset
+  synth.output <- tvae_synthesize_binary(df, n_synth = n_synth, p_class1 = p_class1, epochs = epochs)
+  
+  
+  ##### hui and walter   
+  hui <- hui_walter_mle_se(
+    table(df$test1,df$test2)
+    , table(synth.output$synthetic_df$test1,synth.output$synthetic_df$test2))
+  
+  
+  real.data<-c(as.vector(calc_se_sp(df)),mean(df$class),NA)
+  names(real.data)<-c("Se1" ,"Sp1", "Se2" ,"Sp2"   ,  "Prev_pop1", "Prev_pop2")
+
+  
+  synthetic.data<-c(as.vector(calc_se_sp(synth.output$synthetic_df)),NA,mean(synth.output$synthetic_df$class))
+  names(synthetic.data)<-c("Se1" ,"Sp1", "Se2" ,"Sp2"   ,  "Prev_pop1", "Prev_pop2")
+
+  hui.estimates <- hui$estimates
+  
+  
+  return(rbind(hui.estimates,real.data,synthetic.data))
+}
+
+
+
+
+# this just makes a pretty table
+
+sim_summary_table <- function(results,
+                              block_size = 3,
+                              shade = "#A0A0A0",
+                              probs = c(0.025, 0.975),
+                              kable_args = list()) {
+  # deps
+  stopifnot(length(probs) == 2)
+  if (!requireNamespace("dplyr", quietly = TRUE)) stop("Need {dplyr}.")
+  if (!requireNamespace("kableExtra", quietly = TRUE)) stop("Need {kableExtra}.")
+  if (!requireNamespace("reshape2", quietly = TRUE)) stop("Need {reshape2}.")
+  if (!requireNamespace("knitr", quietly = TRUE)) stop("Need {knitr} (for kable).")
+  
+  # reshape
+  results_df <- reshape2::melt(results)
+  names(results_df) <- c("source", "stat", "iteration", "value")
+  
+  # summarize
+  suppressPackageStartupMessages({
+    library(dplyr)
+  })
+  
+  results_summary <- results_df %>%
+    dplyr::group_by(source, stat) %>%
+    dplyr::summarise(
+      lower = stats::quantile(value, probs[1], na.rm = TRUE),
+      median_val = stats::median(value, na.rm = TRUE),
+      upper = stats::quantile(value, probs[2], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::arrange(stat)
+  
+  # styling indices
+  n <- nrow(results_summary)
+  grp <- if (n > 0) ((seq_len(n) - 1) %/% block_size) + 1 else integer(0)
+  triplet_odd <- which(grp %% 2 == 1)
+  dividers    <- if (n > 0) seq(block_size, n, by = block_size) else integer(0)
+  if (n > 0 && (n %% block_size) != 0) dividers <- c(dividers, n)
+  
+  # build kable
+  suppressPackageStartupMessages({
+    library(kableExtra)
+  })
+  kb <- do.call(knitr::kable, c(list(x = results_summary), kable_args)) %>%
+    kableExtra::row_spec(triplet_odd, background = shade, color = "black") %>%
+    kableExtra::row_spec(dividers, extra_css = "border-bottom: 3px solid #000;") %>%
+    kableExtra::kable_styling(full_width = FALSE)
+  
+  # return both
+  list(summary = results_summary, table = kb)
+}

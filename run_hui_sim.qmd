@@ -25,45 +25,90 @@ what is interesting is that for small, n=1000 training sets, specificity always 
 
 
 ```{r}
-source(here::here("hui_tvae_functions.R"))
-```
 
-
-```{r}
-
-df <- generate_real_data(class0 = 5000 
-                          , class1 = 5000 #count in class =1
-                          ,p1_0 = 0.2 # 1 - sp test 1
-                          ,p1_1 = 0.8 #se test 1
-                          ,p2_0 = 0.10 # 1 -sp test 2
-                          ,p2_1 = 0.8) # se test 2
-
-
-res <- tvae_synthesize_binary(df, n_synth = 5000, p_class1 = 0.8, epochs = 100)
-#head(res$synthetic_df)
-#res$diagnostics
-
-print(list(calc_se_sp_ci(df),calc_se_sp_ci(res$synthetic_df)))
-
-#plot(res$training_loss$Epoch, res$training_loss$Loss, type="l", lwd=2)
-#res$training_loss$loss
+#all the necessary functions
+source(here::here("hui_tvae_functions2.R"))
 ```
 
 
 
 ```{r}
 
-hui <- hui_walter_mle_se(table(df$test1,df$test2), table(res$synthetic_df$test1,res$synthetic_df$test2))
+library(tictoc)
 
-#se and sp estimates
-#res$estimates   # MLEs on probability scale
+tic("time_hui_sim")
 
-#Check
-list(hui$estimates, calc_se_sp_ci(df),calc_se_sp_ci(res$synthetic_df))
+results <- replicate(500,  
+  hui.sim(
+     p_class1_real = 0.7 # class proportion for the "real" training set
+    ,p_class1 =      0.3 # class proportion for the synth
+    ,n_real =        500 # n for the "real" training set
+    ,n_synth =       500 # n for the tvae
+    ,p1_0 =          0.1     # 1 - sp test 1
+    ,p1_1 =          0.9     #se test 1
+    ,p2_0 =          0.2    # 1 -sp test 2
+    ,p2_1 =          0.8     # se test 2  
+    , epochs =       200  #number of training epochs
+  ))
 
-hui$se          # standard errors (Wald)
-hui$ci          # Wald 95% CIs
-hui$logLik
+
+#make the results into a nice table
+sim_summary_table(results)$table
+
+toc()
 ```
 
-GaussianCopulaSynthesizer SEEMS TO DO WORSE THAN TVAE do not use
+
+
+
+```{r}
+# --- Fix for joblib/loky resource_tracker warnings on restart ---
+# These appear when reticulate's embedded Python shuts down and finds leftover semaphores or temp memmaps.
+# This block sets up a stable temp dir, safe parallel backend, and silent teardown.
+
+# Create a stable temp folder for joblib
+dir.create("~/tmp/joblib", recursive = TRUE, showWarnings = FALSE)
+Sys.setenv(JOBLIB_TEMP_FOLDER = "~/tmp/joblib")
+
+# Optionally upgrade joblib/loky for better cleanup behavior
+if (requireNamespace("reticulate", quietly = TRUE)) {
+  try(reticulate::py_install(
+    c("joblib>=1.4", "loky>=3.5"),
+    envname = "r-reticulate", pip = TRUE
+  ))
+}
+
+# Define a Python-safe parallel example with clean exit
+if (requireNamespace("reticulate", quietly = TRUE)) {
+  reticulate::py_run_string("
+import os
+os.makedirs(os.getenv('JOBLIB_TEMP_FOLDER', '/tmp'), exist_ok=True)
+from joblib import Parallel, delayed, parallel_backend
+
+def work(i):
+    # example workload
+    return i*i
+
+# Use threading backend (no semaphores)
+with parallel_backend('threading'):
+    OUT = Parallel(n_jobs=-1)(delayed(work)(i) for i in range(1000))
+
+# Clean shutdown of workers
+import multiprocessing as mp
+for p in mp.active_children():
+    p.terminate()
+")
+  out <- reticulate::py$OUT
+  print(str(out))
+}
+
+# Optional: silence resource_tracker warnings entirely (use sparingly)
+Sys.setenv(PYTHONWARNINGS = "ignore:resource_tracker")
+
+# Summary:
+# - Prevents leaked semaphore warnings at R shutdown.
+# - Keeps joblib temp files in one reusable folder.
+# - Uses threads for safety (no process semaphores).
+# - Safe to keep in .Rprofile or call before running reticulate simulations.
+```
+
