@@ -4,12 +4,69 @@ date: "`r Sys.Date()`"
 author: "Rich Evans, PhD, PSTAT"
 format: pdf
 number-sections: true
-execute: 
+execute:
   echo: true
+  warning: false
+  message: false
 output-file: "analysis_results"
 reticulate:
-  python: "/Users/richardevans/.virtualenvs/r-reticulate/bin/python"
+  # Miniforge (Homebrew cask) env path on Apple Silicon
+  python: "/opt/homebrew/Caskroom/miniforge/base/envs/projectA/bin/python"
 ---
+Run this once to create the project. NEVER run it twice
+```{r}
+# Ensure reticulate is available
+if (!requireNamespace("reticulate", quietly = TRUE)) install.packages("reticulate")
+library(reticulate)
+
+# (Optional) Be explicit about which conda to use (Miniforge via Homebrew):
+# reticulate::use_conda(binary = "/opt/homebrew/bin/conda")
+
+env_name <- "projectA"
+
+# Create the env if it doesn't exist yet
+existing <- tryCatch(reticulate::conda_list()$name, error = function(e) character())
+if (!env_name %in% existing) {
+  message("Creating conda env: ", env_name)
+  reticulate::conda_create(envname = env_name, packages = "python=3.11")
+  reticulate::conda_install(envname = env_name,
+                            packages = c("pip", "numpy", "pandas", "matplotlib", "scikit-learn"),
+                            pip = TRUE)
+}
+
+# Ensure R uses this env for the session (YAML already points to it; this is a safety net)
+reticulate::use_condaenv(env_name, required = TRUE)
+
+# Print config once in the render logs
+reticulate::py_config()
+
+
+# if I forgot a package in the list, say "seaborn"
+#go to bash
+#mamba activate projectA
+#python -m pip install seaborn
+# or within R
+#library(reticulate)
+#conda_install("projectA", packages = "seaborn", pip = TRUE)
+# multiple packages
+#conda_install("projectA", packages = c("scipy", "statsmodels"), pip = TRUE)
+
+```
+
+
+
+Run this each time after creation of the project
+```{r}
+# Load reticulate and ensure it uses the correct environment
+if (!requireNamespace("reticulate", quietly = TRUE)) install.packages("reticulate")
+library(reticulate)
+
+# Use the environment defined in the YAML
+reticulate::use_condaenv("projectA", required = TRUE)
+
+# Optional: print Python config to confirm link (shows path and version)
+reticulate::py_config()
+```
 
 
 ```{r}

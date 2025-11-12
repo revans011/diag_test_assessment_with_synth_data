@@ -24,8 +24,79 @@ small n_real take about 15 minutes. With n_real = 20,000 it takes 5.5 hours.
 source(here::here("hui_tvae_functions2.R"))
 ```
 
+RUN THIS TO REMOVE THE HUI PART AND JUST COMPARE "REAL" AND "SYNTHETIC" ESTIMATES
+```{r}
+
+#now the simulation function that returns a 3D array
+
+hui.sim <- function(
+  p_class1_real = 0.8,
+  n_real = 500,
+  p1_0 = 0.2, # 1 - sp test 1
+  p1_1 = 0.8, #se test 1
+  p2_0 = 0.10, # 1 -sp test 2
+  p2_1 = 0.8, # se test 2
+  n_synth = 5000, # n for the tvae
+  p_class1 = 0.8, # class proportion for the tvae
+  epochs = 100 #number of training epochs
+) {
+  #####"real" dataset
+  df <- generate_real_data(
+    p_class1_real = p_class1_real,
+    n_real = n_real,
+    p1_0 = p1_0, # 1 - sp test 1
+    p1_1 = p1_1, #se test 1
+    p2_0 = p2_0, # 1 -sp test 2
+    p2_1 = p2_1
+  ) # se test 2
+
+  ######generate synthetic dataset
+  synth.output <- tvae_synthesize_binary(
+    df,
+    n_synth = n_synth,
+    p_class1 = p_class1,
+    epochs = epochs
+  )
+
+  #suffle test 2 within class to destroy any dependence
+synth_df_shuffled <- synth.output$synthetic_df  
+
+# %>%
+#   group_by(class) %>%
+#   mutate(value = sample(test2)) %>%
+#   ungroup()
+
+  ##### hui and walter
+ # hui <- hui_walter_mle_se(
+ #   table(df$test1, df$test2),
+ #   table(synth.output$synthetic_df$test1, synth.output$synthetic_df$test2)
+ # )
+
+  real.data <- c(as.vector(calc_se_sp(df)), mean(df$class), NA)
+  names(real.data) <- c("Se1", "Sp1", "Se2", "Sp2", "Prev_pop1", "Prev_pop2")
+
+  synthetic.data <- c(
+    as.vector(calc_se_sp(synth_df_shuffled)),
+    NA,
+    mean(synth_df_shuffled$class)
+  )
+  names(synthetic.data) <- c(
+    "Se1",
+    "Sp1",
+    "Se2",
+    "Sp2",
+    "Prev_pop1",
+    "Prev_pop2"
+  )
+
+  hui.estimates <- c(NA,NA,NA)
+
+  return(rbind(hui.estimates, real.data, synthetic.data))
+}
 
 
+
+```
 
 this uses cond dep hui and walter
 
@@ -50,14 +121,17 @@ results <- replicate(200,
 
 
 #make the results into a nice table
-sim_summary_table(results)$table
+#sim_summary_table(results)$table
 
 
-# the hui estimates modified to look at the effect of larger N and smaller for pop2 on the spread of the point estimates.
-#the idea is to see how large of a synthetic data set to make.
+sim_summary_table(results)$summary |> 
+    filter(!source == "hui.estimates" & stat %in% c("Se2","Sp2","Se1","Sp1"))  %>%
+  pivot_wider(
+    id_cols = source,
+    names_from = stat,
+    values_from = median_val
+  )
 
-sim_summary_table(results)$summary |> filter(source == "hui.estimates") |>
-  mutate(spread = upper - lower) |> select(stat, spread)
 
 toc()
 ```

@@ -11,6 +11,7 @@ if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
 pacman::p_load(
   rio,           # Import/export data in various formats
   stringr,
+  reshape2,
   readxl,        # Read Excel files
   tidyverse,     # Collection of packages for data manipulation and visualization
   janitor,       # Clean data and create tabular summaries

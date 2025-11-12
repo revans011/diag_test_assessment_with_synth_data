@@ -1,0 +1,145 @@
+---
+title: "Analysis"
+date: "`r Sys.Date()`"
+author: "Rich Evans, PhD, PSTAT"
+format: pdf
+number-sections: true
+execute:
+  echo: true
+  warning: false
+  message: false
+output-file: "analysis_results"
+reticulate:
+  # Miniforge (Homebrew cask) env path on Apple Silicon
+  python: "/opt/homebrew/Caskroom/miniforge/base/envs/hui_project/bin/python"
+---
+
+
+
+```{python}
+
+
+"""
+make the project in bash
+/opt/homebrew/Caskroom/miniforge/base/bin/mamba create -n hui_project python=3.12 -y
+/opt/homebrew/Caskroom/miniforge/base/bin/mamba run -n hui_project python --version
+# expect: Python 3.11.x
+
+t
+
+mamba activate hui_project
+mamba install -c pytorch -c conda-forge torch torchvision torchaudio cpuonly
+mamba install numpy pandas scikit-learn matplotlib seaborn joblib tqdm
+
+mamba list -n projectA
+mamba deactivate
+
+mamba env list
+
+mamba create -n projectA python=3.11
+mamba env list
+mamba env remove -n old_project
+
+"""
+```
+
+
+```{r}
+#| label: setup
+#| echo: false
+#| include: false
+
+if (!requireNamespace("reticulate", quietly = TRUE)) install.packages("reticulate")
+
+Sys.getenv("RETICULATE_PYTHON")   # see what's set
+Sys.unsetenv("RETICULATE_PYTHON") # stop overriding
+
+library(reticulate)
+
+Sys.setenv(RETICULATE_PYTHON="/opt/homebrew/Caskroom/miniforge/base/envs/hui_project/bin/python")
+py_config()   # confirm the 'python:' path ends with .../envs/hui_project/bin/python
+# Sys.setenv(RETICULATE_CONDA = "/opt/homebrew/bin/conda")   # Homebrew Miniforge
+ conda_list()                                               # should show hui_project now
+ use_condaenv("hui_project", required = TRUE)
+
+sdv <- import("sdv.single_table") 
+
+# Optional: check Python path and version
+reticulate::py_config()
+
+
+# a little template for installing. BUT perhaps better to use pacman for many packages
+# if (!requireNamespace("bnlearn", quietly = TRUE)) {
+#   install.packages("bnlearn", quietly = TRUE)}
+
+# Set global chunk options
+knitr::opts_chunk$set(
+  echo = FALSE,         # Show code by default
+  warning = FALSE,     # Hide warnings in the output
+  message = FALSE,     # Hide messages in the output
+  fig.width = 4,       # Default figure width
+  fig.height = 2.666,      # Default figure height
+  fig.align = "center" # Center align figures
+)
+
+# Set seed for reproducibility
+#set.seed(1234)
+
+```
+
+
+
+
+
+```{r}
+
+source("hui_tvae_functions2.R")
+```
+
+
+
+
+
+```{r}
+if (!requireNamespace("tictoc", quietly = TRUE)) install.packages("tictoc")
+
+library(tictoc)
+
+tic("time_tvae_sim")
+
+results <- replicate(200,  
+  tvae.sim(
+     p_class1_real = 0.8 # class proportion for the "real" training set
+    ,p_class1 =      0.2 # class proportion for the synth
+    ,n_real =        500 # n for the "real" training set
+    ,n_synth =       500 # n for the tvae
+    ,p1_0 =          0.2     # 1 - sp test 1
+    ,p1_1 =          0.8     #se test 1
+    ,p2_0 =          0.1    # 1 -sp test 2
+    ,p2_1 =          0.8     # se test 2  
+    , epochs =       600  #number of training epochs
+  ))
+
+
+#make the results into a nice table
+sim_summary_table(results,block_size = 2)$table
+
+# look at the difference in the se and sp estimates for real an synth using effect size
+
+sim_summary_table(results)$summary |> filter(stat != "Prev_pop1" & stat != "Prev_pop2" )%>%
+  mutate(sd = (upper - lower) / 3.92) %>%
+  group_by(stat) %>%
+  summarise(
+    d = {
+      m1 <- median_val[source == "synthetic.data"]
+      m2 <- median_val[source == "real.data"]
+      sd1 <- sd[source == "synthetic.data"]
+      sd2 <- sd[source == "real.data"]
+      (m1 - m2) / sqrt((sd1^2 + sd2^2) / 2)
+    }
+  )
+toc()
+```
+
+
+**End of Document**
