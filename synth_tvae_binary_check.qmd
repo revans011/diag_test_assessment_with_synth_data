@@ -97,7 +97,19 @@ source("hui_tvae_functions2.R")
 ```
 
 
-
+```{r}
+tvae.sim(
+     p_class1_real = 0.7 # class proportion for the "real" training set
+    ,p_class1 =      0.3 # class proportion for the synth
+    ,n_real =        500 # n for the "real" training set
+    ,n_synth =       5000 # n for the tvae
+    ,p1_0 =          0.3     # 1 - sp test 1
+    ,p1_1 =          0.8     #se test 1
+    ,p2_0 =          0.3    # 1 -sp test 2
+    ,p2_1 =          0.8     # se test 2  
+    , epochs =       60  #number of training epochs
+  ) 
+```
 
 
 ```{r}
@@ -107,38 +119,115 @@ library(tictoc)
 
 tic("time_tvae_sim")
 
-results <- replicate(200,  
+
+results <- replicate(20,  
   tvae.sim(
-     p_class1_real = 0.8 # class proportion for the "real" training set
-    ,p_class1 =      0.2 # class proportion for the synth
-    ,n_real =        500 # n for the "real" training set
-    ,n_synth =       500 # n for the tvae
-    ,p1_0 =          0.2     # 1 - sp test 1
-    ,p1_1 =          0.8     #se test 1
-    ,p2_0 =          0.1    # 1 -sp test 2
-    ,p2_1 =          0.8     # se test 2  
-    , epochs =       600  #number of training epochs
+     p_class1_real = 0.6 # class proportion for the "real" training set
+    ,p_class1 =      0.6 # class proportion for the synth
+    ,n_real =        5000 # n for the "real" training set  This has to be large
+    ,n_synth =       500 # n for the tvae. the size of this may affect hui but not se and sp with known class labels
+    ,p1_0 =          0.4     # 1 - sp test 1
+    ,p1_1 =          0.7     #se test 1
+    ,p2_0 =          0.4    # 1 -sp test 2
+    ,p2_1 =          0.7     # se test 2  
+    , epochs =       200  #number of training epochs
   ))
 
 
 #make the results into a nice table
-sim_summary_table(results,block_size = 2)$table
+sim_summary_table(results,block_size = 2)$table 
 
 # look at the difference in the se and sp estimates for real an synth using effect size
 
-sim_summary_table(results)$summary |> filter(stat != "Prev_pop1" & stat != "Prev_pop2" )%>%
-  mutate(sd = (upper - lower) / 3.92) %>%
-  group_by(stat) %>%
-  summarise(
-    d = {
-      m1 <- median_val[source == "synthetic.data"]
-      m2 <- median_val[source == "real.data"]
-      sd1 <- sd[source == "synthetic.data"]
-      sd2 <- sd[source == "real.data"]
-      (m1 - m2) / sqrt((sd1^2 + sd2^2) / 2)
-    }
-  )
+
 toc()
+```
+
+
+```{r}
+
+results_df <- reshape2::melt(results)
+  names(results_df) <- c("source", "stat", "iteration", "value")
+
+df_wide <- results_df |>
+  filter(stat == "Se1") |>
+  select(iteration, source, value) |>
+  pivot_wider(
+    names_from  = source,
+    values_from = value,
+    names_repair = "minimal"
+  )
+
+ggplot(df_wide, aes(x = real.data, y = synthetic.data)) +
+  geom_point(size = 3) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linewidth = 1.2) +
+  coord_cartesian(xlim = c(0.7, 0.95), ylim = c(0.7, 0.95)) +
+  labs(
+    x = "Real data (Se1)",
+    y = "Synthetic data (Se1)",
+    title = "Scatterplot of Real vs Synthetic Se1"
+  ) +
+  theme_bw()
+
+df_wide <- results_df |>
+  filter(stat == "Se2") |>
+  select(iteration, source, value) |>
+  pivot_wider(
+    names_from  = source,
+    values_from = value,
+    names_repair = "minimal"
+  )
+
+ggplot(df_wide, aes(x = real.data, y = synthetic.data)) +
+  geom_point(size = 3) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linewidth = 1.2) +
+  coord_cartesian(xlim = c(0.5, 0.95), ylim = c(0.5, 0.95)) +
+  labs(
+    x = "Real data (Se1)",
+    y = "Synthetic data (Se1)",
+    title = "Scatterplot of Real vs Synthetic Se1"
+  ) +
+  theme_bw()
+
+df_wide <- results_df |>
+  filter(stat == "Sp1") |>
+  select(iteration, source, value) |>
+  pivot_wider(
+    names_from  = source,
+    values_from = value,
+    names_repair = "minimal"
+  )
+
+ggplot(df_wide, aes(x = real.data, y = synthetic.data)) +
+  geom_point(size = 3) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linewidth = 1.2) +
+  coord_cartesian(xlim = c(0.5, 0.95), ylim = c(0.5, 0.95)) +
+  labs(
+    x = "Real data (Se1)",
+    y = "Synthetic data (Se1)",
+    title = "Scatterplot of Real vs Synthetic Se1"
+  ) +
+  theme_bw()
+
+df_wide <- results_df |>
+  filter(stat == "Sp2") |>
+  select(iteration, source, value) |>
+  pivot_wider(
+    names_from  = source,
+    values_from = value,
+    names_repair = "minimal"
+  )
+
+ggplot(df_wide, aes(x = real.data, y = synthetic.data)) +
+  geom_point(size = 3) +
+  geom_abline(intercept = 0, slope = 1, color = "red", linewidth = 1.2) +
+  coord_cartesian(xlim = c(0.5, 0.95), ylim = c(0.5, 0.95)) +
+  labs(
+    x = "Real data (Se1)",
+    y = "Synthetic data (Se1)",
+    title = "Scatterplot of Real vs Synthetic Se1"
+  ) +
+  theme_bw()
 ```
 
 

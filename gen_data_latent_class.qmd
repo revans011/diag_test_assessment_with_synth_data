@@ -1,0 +1,144 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+source("hui_tvae_functions2.R")
+```
+
+
+
+```{r}
+# t1, t2 are 0/1 for a *single* pattern (e.g. 1,0)
+mc_prob_class1_for_pattern <- function(
+  t1, t2,
+  aSe1, bSe1,
+  aSp1, bSp1,
+  aSe2, bSe2,
+  aSp2, bSp2,
+  a_pi, b_pi,
+  n_draws = 5000
+) {
+  # Draw from priors
+  Se1 <- rbeta(n_draws, aSe1, bSe1)
+  Sp1 <- rbeta(n_draws, aSp1, bSp1)
+  Se2 <- rbeta(n_draws, aSe2, bSe2)
+  Sp2 <- rbeta(n_draws, aSp2, bSp2)
+  pi  <- rbeta(n_draws, a_pi,  b_pi)
+
+  # Likelihood under class = 1
+  lik1 <- (ifelse(t1 == 1, Se1, 1 - Se1)) *
+          (ifelse(t2 == 1, Se2, 1 - Se2))
+
+  # Likelihood under class = 0
+  lik0 <- (ifelse(t1 == 1, 1 - Sp1, Sp1)) *
+          (ifelse(t2 == 1, 1 - Sp2, Sp2))
+
+  post_draws <- (pi * lik1) / (pi * lik1 + (1 - pi) * lik0)
+
+  c(
+    mean = mean(post_draws),
+    sd   = sd(post_draws)
+  )
+}
+```
+
+
+
+```{r}
+
+
+mc_latent_class <- function(
+  df,
+  # Prior hyperparameters for Se/Sp and prevalence
+  aSe1 = 80, bSe1 = 20,   # mean ~ 0.80
+  aSp1 = 90, bSp1 = 10,   # mean ~ 0.90
+  aSe2 = 85, bSe2 = 15,   # mean ~ 0.85
+  aSp2 = 88, bSp2 = 12,   # mean ~ 0.88
+  a_pi = 3,  b_pi = 7,    # mean ~ 0.30
+  n_draws = 5000
+) {
+  df$test1 <- as.integer(df$test1)
+  df$test2 <- as.integer(df$test2)
+
+  # All 4 patterns
+  patterns <- rbind(
+    c(0, 0),
+    c(0, 1),
+    c(1, 0),
+    c(1, 1)
+  )
+  rownames(patterns) <- c("00", "01", "10", "11")
+
+  # Compute posterior mean P(class=1 | pattern) for each pattern
+  pattern_results <- apply(
+    patterns, 1,
+    function(x) mc_prob_class1_for_pattern(
+      t1 = x[1], t2 = x[2],
+      aSe1 = aSe1, bSe1 = bSe1,
+      aSp1 = aSp1, bSp1 = bSp1,
+      aSe2 = aSe2, bSe2 = bSe2,
+      aSp2 = aSp2, bSp2 = bSp2,
+      a_pi  = a_pi, b_pi  = b_pi,
+      n_draws = n_draws
+    )
+  )
+
+  # pattern_results is 2 x 4 (mean, sd rows)
+  pattern_means <- pattern_results["mean", ]
+  # pattern_sds   <- pattern_results["sd", ]   # available if you want uncertainty
+
+  # Map each row in df to one of the 4 patterns
+  combo <- paste0(df$test1, df$test2)
+  lookup <- setNames(pattern_means, names(pattern_means))
+
+  df$prob_class1 <- lookup[combo]
+  df$pred_class  <- as.integer(df$prob_class1 > 0.5)
+
+  df
+}
+
+
+
+```
+
+
+
+```{r}
+# Example df
+set.seed(4)
+
+df <-generate_real_data()
+
+df_out <- mc_latent_class(df)
+
+hist(df_out$prob_class1)
+
+head(df_out,30)
+table(df_out$pred_class)
+
+mean(df_out$prob_class1)
+```
+
+
+Option 1: Dumb but often good enough — majority vote
+
+If both tests are “better than random,” then:
+	•	if both tests say 1, probably class = 1
+	•	if both say 0, probably class = 0
+	•	if they disagree, call it 1 if you want to be more “sensitive,” or 0 if you want to be more “specific”
+
+    
+```{r}
+set.seed(5)
+df<-generate_real_data()
+# df has test1 and test2 (0/1)
+# df has test1 and test2 (0/1)
+df$class_hat_mv <- ifelse(df$test1 + df$test2 >= 1, 1, 0)
+# or stricter:
+ #df$class_hat_mv <- ifelse(df$test1 + df$test2 == 2, 1, 0)
+
+mean(df$class)
+mean(df$class_hat_mv)
+```

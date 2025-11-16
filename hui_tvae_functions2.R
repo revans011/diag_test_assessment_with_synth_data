@@ -1,3 +1,8 @@
+
+# part of the way to list variables on sourcing
+.__before_source__ <- ls(envir = .GlobalEnv)
+
+
 #these functions come from hui_synth_tvae_method_binary_diag2.qmd
 
 # --- 0) Setup (restart R first if you switched Python) ---
@@ -72,11 +77,7 @@ if (FALSE) {
 #two functions with the same name to calc se and sp. Note that the only difference in the arrangment of the output
 
 calc_se_sp_ci <- function(df, conf.level = 0.95) {
-  if (!requireNamespace("binom", quietly = TRUE)) {
-    stop(
-      "Package 'binom' is required. Please install it using install.packages('binom')."
-    )
-  }
+ 
 
   gold <- df$class
 
@@ -115,11 +116,10 @@ calc_se_sp_ci <- function(df, conf.level = 0.95) {
   round(results, 3)
 }
 
+if (!requireNamespace("binom", quietly = TRUE)) install.packages("binom")
 
 calc_se_sp_ci <- function(df, conf.level = 0.95) {
-  if (!requireNamespace("binom", quietly = TRUE)) {
-    stop("Please install 'binom'.")
-  }
+  
 
   gold <- df$class
 
@@ -738,37 +738,34 @@ sim_summary_table <- function(
 ) {
   # deps
   stopifnot(length(probs) == 2)
-  if (!requireNamespace("dplyr", quietly = TRUE)) {
-    stop("Need {dplyr}.")
-  }
-  if (!requireNamespace("kableExtra", quietly = TRUE)) {
-    stop("Need {kableExtra}.")
-  }
-  if (!requireNamespace("reshape2", quietly = TRUE)) {
-    stop("Need {reshape2}.")
-  }
-  if (!requireNamespace("knitr", quietly = TRUE)) {
-    stop("Need {knitr} (for kable).")
-  }
+
 
   # reshape
   results_df <- reshape2::melt(results)
   names(results_df) <- c("source", "stat", "iteration", "value")
 
   # summarize
-  suppressPackageStartupMessages({
-    library(dplyr)
-  })
+  
 
-  results_summary <- results_df %>%
-    dplyr::group_by(source, stat) %>%
-    dplyr::summarise(
-      lower = stats::quantile(value, probs[1], na.rm = TRUE),
-      median_val = stats::median(value, na.rm = TRUE),
-      upper = stats::quantile(value, probs[2], na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    dplyr::arrange(stat)
+  # results_summary <- results_df %>%
+  #   dplyr::group_by(source, stat) %>%
+  #   dplyr::summarise(
+  #     lower = stats::quantile(value, probs[1], na.rm = TRUE),
+  #     median_val = stats::median(value, na.rm = TRUE),
+  #     upper = stats::quantile(value, probs[2], na.rm = TRUE),
+  #     .groups = "drop"
+  #   ) %>%
+  #   dplyr::arrange(stat)
+
+results_summary <- results_df %>%
+  dplyr::group_by(source, stat) %>%
+  dplyr::summarise(
+    mean_val = mean(value, na.rm = TRUE),
+    sd_val   = sd(value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  dplyr::arrange(stat)
+  
 
   # styling indices
   n <- nrow(results_summary)
@@ -780,9 +777,7 @@ sim_summary_table <- function(
   }
 
   # build kable
-  suppressPackageStartupMessages({
-    library(kableExtra)
-  })
+  
   kb <- do.call(knitr::kable, c(list(x = results_summary), kable_args)) %>%
     kableExtra::row_spec(triplet_odd, background = shade, color = "black") %>%
     kableExtra::row_spec(
@@ -804,7 +799,7 @@ tvae.sim <- function(
   p1_1 = 0.8, #se test 1
   p2_0 = 0.10, # 1 -sp test 2
   p2_1 = 0.8, # se test 2
-  n_synth = 5000, # n for the tvae
+  n_synth = 500, # n for the tvae
   p_class1 = 0.8, # class proportion for the tvae
   epochs = 100 #number of training epochs
 ) {
@@ -815,8 +810,7 @@ tvae.sim <- function(
     p1_0 = p1_0, # 1 - sp test 1
     p1_1 = p1_1, #se test 1
     p2_0 = p2_0, # 1 -sp test 2
-    p2_1 = p2_1
-  ) # se test 2
+    p2_1 = p2_1 ) # se test 2
 
   ######generate synthetic dataset
   synth.output <- tvae_synthesize_binary(
@@ -826,25 +820,80 @@ tvae.sim <- function(
     epochs = epochs
   )
 
+ 
 
 
-  real.data <- c(as.vector(calc_se_sp(df)), mean(df$class), NA)
-  names(real.data) <- c("Se1", "Sp1", "Se2", "Sp2", "Prev_pop1", "Prev_pop2")
+  real.data <- c(as.vector(calc_se_sp_ci(df)), mean(df$class),NA)
 
+  names(real.data) <- c("Se1.L","Se2.L", "Se1", "Se2","Se1.U","Se2.U",
+                        "Sp1.L","Sp2.L","Sp1","Sp2", "Sp1.U","Sp2.U","Prev_pop1", "Prev_pop2")
+ 
+
+
+  
   synthetic.data <- c(
-    as.vector(calc_se_sp(synth.output$synthetic_df)),
+    as.vector(calc_se_sp_ci(synth.output$synthetic_df)),
     NA,
     mean(synth.output$synthetic_df$class)
   )
-  names(synthetic.data) <- c(
-    "Se1",
-    "Sp1",
-    "Se2",
-    "Sp2",
-    "Prev_pop1",
-    "Prev_pop2"
-  )
+  names(synthetic.data) <- c("Se1.L","Se2.L" ,"Se1", "Se2", "Se1.U","Se2.U",
+                        "Sp1.L","Sp2.L" ,"Sp1", "Sp2", "Sp1.U","Sp2.U","Prev_pop1", "Prev_pop2")
+ 
 
 
   return(rbind(real.data, synthetic.data))
 }
+
+
+
+#---------------------------------------
+#---------------------------------------
+
+bootstrap_with_class <- function(df, p_class1) {
+  stopifnot(all(c("class", "test1", "test2") %in% names(df)))
+  stopifnot(p_class1 >= 0, p_class1 <= 1)
+
+  n <- nrow(df)
+
+  # number of class 1 and class 0 rows to sample
+  n1 <- round(n * p_class1)
+  n0 <- n - n1
+
+  # rows from real data
+  df1 <- df[df$class == 1, ]
+  df0 <- df[df$class == 0, ]
+
+  if (nrow(df1) == 0 || nrow(df0) == 0) {
+    stop("Both class=0 and class=1 must exist in df.")
+  }
+
+  # bootstrap within each class
+  idx1 <- sample(seq_len(nrow(df1)), size = n1, replace = TRUE)
+  idx0 <- sample(seq_len(nrow(df0)), size = n0, replace = TRUE)
+
+  # combine and shuffle
+  out <- rbind(df1[idx1, ], df0[idx0, ])
+  out <- out[sample(seq_len(n)), ]   # shuffle rows
+  rownames(out) <- NULL
+
+  out
+}
+
+# Create a bootstrap synthetic dataset with 30% class=1
+# df_synth <- bootstrap_with_class(df, p_class1 = 0.30)
+
+# prop.table(table(df_synth$class))
+# table(df_synth$test1, df_synth$test2)
+
+#---------------------------------------
+
+
+
+# part of the way to list variables on sourcing
+.__after_source__  <- ls(envir = .GlobalEnv)
+
+.__new_objects__ <- setdiff(.__after_source__, .__before_source__)
+.__new_functions__ <- .__new_objects__[sapply(.__new_objects__, function(x) is.function(get(x)))]
+
+cat("Loaded functions:\n")
+print(.__new_functions__)

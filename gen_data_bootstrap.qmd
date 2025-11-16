@@ -1,0 +1,90 @@
+---
+title: "Untitled"
+format: html
+---
+
+```{r}
+source("hui_tvae_functions2.R")
+```
+
+
+
+```{r}
+# Example df
+set.seed(4)
+
+df <-generate_real_data(
+    p_class1_real = 0.8,
+  n_real = 500,
+  p1_0 = 0.15, # 1 - sp test 1
+  p1_1 = 0.75, #se test 1
+  p2_0 = 0.10, # 1 -sp test 2
+  p2_1 = 0.65
+)
+
+df_out <- bootstrap_with_class(df,0.4)
+
+calc_se_sp(df)
+calc_se_sp(df_out)
+
+rbind(as.vector(calc_se_sp(df)),
+      as.vector(calc_se_sp(df_out)),
+hui_walter_mle_se(table(df$test1,df$test2),table(df_out$test1,df_out$test2))$estimates[1:4])
+
+```
+
+
+
+```{r}
+sim_once <- function(
+  p_class1_real  = 0.8,
+  p_class1_boot  = 0.4,    # target class proportion for bootstrap_with_class
+  n_real         = 500,
+  p1_0           = 0.15,  # 1 - Sp test 1
+  p1_1           = 0.75,  # Se test 1
+  p2_0           = 0.10,  # 1 - Sp test 2
+  p2_1           = 0.65  # Se test 2
+  
+) {
+  # 1) Generate "true" data
+  df <- generate_real_data(
+    p_class1_real = p_class1_real,
+    n_real        = n_real,
+    p1_0          = p1_0,
+    p1_1          = p1_1,
+    p2_0          = p2_0,
+    p2_1          = p2_1
+  )
+
+  # 2) Bootstrap synthetic data with new class proportion
+  df_out <- bootstrap_with_class(df, p_class1_boot)
+
+  # 3) SE/SP from real and bootstrap data
+  se_sp_real <- as.vector(calc_se_sp(df))
+  se_sp_boot <- as.vector(calc_se_sp(df_out))
+
+  # 4) Hui–Walter estimates (first 4 entries)
+  hw_est <- hui_walter_mle_se(
+    table(df$test1, df$test2),
+    table(df_out$test1, df_out$test2)
+  )$estimates[1:4]
+
+  # 5) Bind into a 3x4 matrix (same structure as your original code)
+  res <- rbind(se_sp_real, se_sp_boot, hw_est)
+  rownames(res) <- c("real", "bootstrap", "hui_walter")
+
+  res
+}
+
+
+set.seed(123)
+
+nsim <- 1000
+sim_res <- replicate(nsim, sim_once(), simplify = "array")
+# sim_res is 3 x 4 x nsim
+
+# Average over simulations (means for each cell of the 3x4 matrix)
+mean_mat <- apply(sim_res, c(1, 2), mean)
+
+mean_mat
+```
